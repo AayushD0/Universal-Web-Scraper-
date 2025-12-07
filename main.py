@@ -1,5 +1,5 @@
 def main():
-    print("Hello from repl-nix-workspace!")
+    print("Starting Universal Webscraper......")
 
 
 if __name__ == "__main__":
