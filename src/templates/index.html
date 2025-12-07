@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Web Scraper</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Universal Web Scraper</h1>
+            <p>Extract structured data from any website</p>
+        </header>
+
+        <main>
+            <div class="input-section">
+                <div class="input-group">
+                    <input 
+                        type="url" 
+                        id="urlInput" 
+                        placeholder="Enter URL to scrape (e.g., https://example.com)"
+                        required
+                    >
+                    <button id="scrapeBtn" onclick="scrapeUrl()">Scrape</button>
+                </div>
+            </div>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Scraping website... This may take up to 30 seconds for JS-heavy sites.</p>
+            </div>
+
+            <div id="error" class="error hidden"></div>
+
+            <div id="results" class="results hidden">
+                <div class="results-header">
+                    <h2>Scrape Results</h2>
+                    <button onclick="downloadJson()" class="download-btn">Download JSON</button>
+                </div>
+
+                <div class="meta-section">
+                    <h3>Page Metadata</h3>
+                    <div id="metadata"></div>
+                </div>
+
+                <div class="interactions-section">
+                    <h3>Interactions Performed</h3>
+                    <div id="interactions"></div>
+                </div>
+
+                <div class="sections-container">
+                    <h3>Sections (<span id="sectionCount">0</span>)</h3>
+                    <div id="sections"></div>
+                </div>
+
+                <div id="errors-section" class="errors-section hidden">
+                    <h3>Errors</h3>
+                    <div id="errorsContent"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let scrapeData = null;
+
+        async function scrapeUrl() {
+            const urlInput = document.getElementById('urlInput');
+            const url = urlInput.value.trim();
+            
+            if (!url) {
+                showError('Please enter a URL');
+                return;
+            }
+
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                showError('URL must start with http:// or https://');
+                return;
+            }
+
+            hideError();
+            hideResults();
+            showLoading();
+
+            try {
+                const response = await fetch('/scrape', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ url })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                scrapeData = data;
+                displayResults(data);
+            } catch (error) {
+                showError(`Failed to scrape: ${error.message}`);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function displayResults(data) {
+            const result = data.result;
+
+            const metadataHtml = `
+                <div class="meta-grid">
+                    <div class="meta-item"><strong>URL:</strong> <a href="${result.url}" target="_blank">${result.url}</a></div>
+                    <div class="meta-item"><strong>Title:</strong> ${result.meta.title || 'N/A'}</div>
+                    <div class="meta-item"><strong>Description:</strong> ${result.meta.description || 'N/A'}</div>
+                    <div class="meta-item"><strong>Language:</strong> ${result.meta.language || 'N/A'}</div>
+                    <div class="meta-item"><strong>Canonical:</strong> ${result.meta.canonical || 'N/A'}</div>
+                    <div class="meta-item"><strong>Scraped At:</strong> ${result.scrapedAt}</div>
+                </div>
+            `;
+            document.getElementById('metadata').innerHTML = metadataHtml;
+
+            const interactionsHtml = `
+                <div class="interactions-grid">
+                    <div class="interaction-item"><strong>Clicks:</strong> ${result.interactions.clicks.length > 0 ? result.interactions.clicks.join(', ') : 'None'}</div>
+                    <div class="interaction-item"><strong>Scrolls:</strong> ${result.interactions.scrolls}</div>
+                    <div class="interaction-item"><strong>Pages Visited:</strong> ${result.interactions.pages.length}</div>
+                </div>
+            `;
+            document.getElementById('interactions').innerHTML = interactionsHtml;
+
+            document.getElementById('sectionCount').textContent = result.sections.length;
+
+            const sectionsHtml = result.sections.map((section, index) => `
+                <div class="section-item">
+                    <div class="section-header" onclick="toggleSection(${index})">
+                        <div class="section-info">
+                            <span class="section-type">${section.type}</span>
+                            <span class="section-label">${section.label}</span>
+                            ${section.truncated ? '<span class="truncated-badge">Truncated</span>' : ''}
+                        </div>
+                        <span class="toggle-icon" id="toggle-${index}">+</span>
+                    </div>
+                    <div class="section-content hidden" id="section-${index}">
+                        <pre>${JSON.stringify(section, null, 2)}</pre>
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('sections').innerHTML = sectionsHtml;
+
+            if (result.errors && result.errors.length > 0) {
+                const errorsHtml = result.errors.map(error => `
+                    <div class="error-item">
+                        <strong>${error.phase}:</strong> ${error.message}
+                    </div>
+                `).join('');
+                document.getElementById('errorsContent').innerHTML = errorsHtml;
+                document.getElementById('errors-section').classList.remove('hidden');
+            } else {
+                document.getElementById('errors-section').classList.add('hidden');
+            }
+
+            showResults();
+        }
+
+        function toggleSection(index) {
+            const content = document.getElementById(`section-${index}`);
+            const icon = document.getElementById(`toggle-${index}`);
+            
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.textContent = '-';
+            } else {
+                content.classList.add('hidden');
+                icon.textContent = '+';
+            }
+        }
+
+        function downloadJson() {
+            if (!scrapeData) return;
+            
+            const blob = new Blob([JSON.stringify(scrapeData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `scrape-${Date.now()}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = message;
+            errorEl.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('error').classList.add('hidden');
+        }
+
+        function showResults() {
+            document.getElementById('results').classList.remove('hidden');
+        }
+
+        function hideResults() {
+            document.getElementById('results').classList.add('hidden');
+        }
+
+        document.getElementById('urlInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                scrapeUrl();
+            }
+        });
+    </script>
+</body>
+</html>
